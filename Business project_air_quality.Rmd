@@ -1,0 +1,2056 @@
+---
+title: "Business Project"
+author: "Camilla Colanero, Diletta Pasin, Andrea Pizzolato"
+date: "2024-01-11"
+output: 
+  pdf_document:
+    extra_dependencies: "subfig"
+---
+## Libraries
+
+Here are listed all the libraries loaded during our study.
+```{r}
+install.packages("openxlsx")
+library(openxlsx)
+```
+```{r}
+install.packages("DescTools")
+library(DescTools)
+```
+```{r}
+install.packages("psych")
+library(psych)
+```
+```{r}
+install.packages("kableExtra")
+library(kableExtra)
+install.packages('corrplot')
+install.packages("tidyverse")
+```
+
+```{r, message=FALSE}
+#install.packages("readxl","openxlsx", "gridExtra", "DescTools", "psych", "car", "e1071", "knitr", "kableExtra")
+library(readxl)
+library(openxlsx)
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(DescTools)
+library(psych)
+library(corrplot)
+library(car)
+library(e1071)
+library(class)
+library(pROC)
+library(MASS)
+library(glmnet)
+library(knitr)
+library(kableExtra)
+```
+
+## Loading Data
+We now create the dataset aaq and maq that have the concentration of the pollutant.
+
+```{r echo = T, eval = T}
+setwd("/Users/camyc/Desktop/camilla/universita/business_economic_and_financial_data/project")
+aaq <- read.xlsx("arcella_air_quality_2.xlsx")
+aaq$X1 <- convertToDate(aaq$X1, origin = "1900-01-01")
+colnames(aaq)[1] <- "date"
+aaq$date <- as.Date(aaq$date, format = "%d/%m/%Y")
+View(aaq)
+
+maq <- read.xlsx("mandria_air_quality_2.xlsx")
+maq$X1 <- convertToDate(maq$X1, origin = "1900-01-01")
+colnames(maq)[1] <- "date"
+maq$date <- as.Date(maq$date, format = "%d/%m/%Y")
+```
+
+We now remove the column SO2 from the maq dataset since we have its values only in the first years thus it is useless to keep it
+
+```{r echo = F, eval = T}
+#remove the column SO2 from the maq dataset
+maq <- maq[,-7]
+View(maq)
+```
+
+We now import also the dataset with the PM data
+
+```{r echo = T, eval = T}
+pma <-read.xlsx("PD_arcella_pm.xlsx")
+pma$X1 <- convertToDate(pma$X1, origin = "1900-01-01")
+colnames(pma)[1] <- "date"
+pma$date <- as.Date(pma$date, format = "%d/%m/%Y")
+
+pmm <-read.xlsx("PD_mandria_pm.xlsx")
+pmm$X1 <- convertToDate(pmm$X1, origin = "1900-01-01")
+pmm$X1 <- format(pmm$X1, format('%d/%m/%Y'))
+colnames(pmm) <-c( "date", "PM10", "PM2.5" )
+pmm$date <- as.Date(pmm$date, format = "%d/%m/%Y")
+
+
+pmm$PM10<-as.numeric(pmm$PM10)
+pmm$PM2.5<-as.numeric(pmm$PM2.5)
+
+View(pma)
+View(pmm)
+```
+
+# NOx column
+we remove the column NOx from the datasets since it's not useful (it comprehends various substances apart from NO and NO2)
+```{r echo = T, eval = T}
+aaq <- aaq[,-5]
+maq <- maq[,-5]
+View(aaq)
+View(maq)
+```
+
+# removing of rows
+We remove the row of the 30th of June 2023 since it doesn't appear in the pmm dataset
+
+```{r echo = T, eval = T}
+pma<-pma[-4199,]
+pmm<-pmm[-4199,]
+aaq<-aaq[-4199,]
+maq<-maq[-4199,]
+```
+
+# NA values 
+we want to change the Na values with the mean between the previous and the next value
+
+```{r echo = T, eval = T}
+maq[maq==0]<-NA
+aaq[aaq==0]<-NA
+pma[pma==0]<-NA
+pmm[pmm==0]<-NA
+
+sostituisciNAconMedia <- function(colonna) {
+  # Trova gli indici dei valori NA
+  indici_na <- which(is.na(colonna))
+  
+  # Ciclo attraverso gli indici NA e sostituisci con la media tra il primo precedente e il primo successivo non NA
+  for (indice in indici_na) {
+    # Trova il primo precedente non NA
+    precedente_non_na <- max(which(!is.na(colonna[1:indice])))
+    
+    # Trova il primo successivo non NA
+    successivo_non_na <- min(which(!is.na(colonna[(indice+1):length(colonna)]))) + indice
+    
+    # Calcola la media e sostituisci il valore NA
+    colonna[indice] <- mean(c(colonna[precedente_non_na], colonna[successivo_non_na]), na.rm = TRUE)
+  }
+  
+  return(colonna)
+}
+
+aaq$CO<-sostituisciNAconMedia(aaq$CO)
+aaq$NO<-sostituisciNAconMedia(aaq$NO)
+aaq$NO2<-sostituisciNAconMedia(aaq$NO2)
+aaq$SO2<-sostituisciNAconMedia(aaq$SO2)
+
+maq$CO<-sostituisciNAconMedia(maq$CO)
+maq$NO<-sostituisciNAconMedia(maq$NO)
+maq$NO2<-sostituisciNAconMedia(maq$NO2)
+maq$O3<-sostituisciNAconMedia(maq$O3)
+
+pma$PM10<-sostituisciNAconMedia(pma$PM10)
+
+pmm$PM10<-sostituisciNAconMedia(pmm$PM10)
+pmm$PM2.5<-sostituisciNAconMedia(pmm$PM2.5)
+
+#count the number of NA values in the dataset maq
+sum(is.na(maq))
+sum(is.na(aaq))
+sum(is.na(pma))
+sum(is.na(pmm))
+```
+
+We don't have any NA values now
+We merge the couples of datasets of the same place
+```{r echo = T, eval = T}
+aaq <- merge(aaq, pma, by = 'date')
+maq <- merge(maq, pmm, by = 'date')
+View(aaq)
+View(maq)
+```
+
+We delete the NO column because we do not have the limits set by ARPAV for it
+```{r echo = T, eval = T}
+aaq<-aaq[,-3]
+maq<-maq[,-3]
+```
+
+# Data analysis
+
+We start with our data analysis
+```{r echo = T, eval = T}
+#let's set the concentration limits with a vector, based on ARPAV 2022 report
+limits<-c(10,200,125,50)
+IQAa<-data.frame("IQA"= numeric(), "pollutant"= character() )
+
+for (i in 1:nrow(aaq)) {
+    test<-c(aaq[i,]$CO*100/limits[1],  aaq[i,]$NO2*100/limits[2],  aaq[i,]$SO2*100/limits[3], aaq[i,]$PM10*100/limits[4] )
+    test
+    IQAa<-rbind(IQAa, c(max(test), colnames(aaq)[which.max(test) + 1]))
+}
+
+colnames(IQAa)<-c("IQA", "pollutant")
+IQAa$date <- aaq$date
+IQAa <- IQAa[,c(3,1,2)] 
+View(IQAa)
+```
+
+Now let's do the same for the Mandria relevation station. For what concerns PM 2.5, we used
+the WHO limit because ARPAV had only the annual mean as a limit for this pollutant
+
+```{r echo = T, eval = T}
+#let's set the concentration limits with a vector, based on ARPAV 2022 report
+limits_m<-c(10, 200, 180, 50, 15)
+IQAm<-data.frame("IQA" = numeric(), "pollutant"=character())
+ 
+for (i in 1:nrow(maq)) {
+    test <- c(maq[i,]$CO*100/limits_m[1],  maq[i,]$NO2*100/limits_m[2],  maq[i,]$O3*100/limits_m[3], maq[i,]$PM10*100/limits_m[4], maq[i,]$PM2.5*100/limits_m[5] )
+    test
+    IQAm <- rbind(IQAm, c(max(test), colnames(maq)[which.max(test) + 1]))
+}
+
+colnames(IQAm)<-c("IQA", "pollutant")
+IQAm$date <- maq$date
+IQAm <- IQAm[,c(3,1,2)] 
+View(IQAm)
+```
+
+We are now going to make a general evaluation on the quality of the air in Padua using
+the IQA with some limit values that are usually accepted for this index
+
+```{r}
+#firstly let's create all eleven datasets, one for year, excluding 2023 which is incomplete
+IQAa_1<-IQAa[1:366,]
+IQAa_2<-IQAa[367:731,]
+IQAa_3<-IQAa[732:1096,]
+IQAa_4<-IQAa[1097:1461,]
+IQAa_5<-IQAa[1462:1827,]
+IQAa_6<-IQAa[1828:2192,]
+IQAa_7<-IQAa[2193:2557,]
+IQAa_8<-IQAa[2558:2922,]
+IQAa_9<-IQAa[2923:3288,]
+IQAa_10<-IQAa[3289:3653,]
+IQAa_11<-IQAa[3654:4018,]
+IQAa_12<-IQAa[4019:4198,]
+
+
+IQAm_1<-IQAm[1:366,]
+IQAm_2<-IQAm[367:731,]
+IQAm_3<-IQAm[732:1096,]
+IQAm_4<-IQAm[1097:1461,]
+IQAm_5<-IQAm[1462:1827,]
+IQAm_6<-IQAm[1828:2192,]
+IQAm_7<-IQAm[2193:2557,]
+IQAm_8<-IQAm[2558:2922,]
+IQAm_9<-IQAm[2923:3288,]
+IQAm_10<-IQAm[3289:3653,]
+IQAm_11<-IQAm[3654:4018,]
+IQAm_12<-IQAm[4019:4198,]
+```
+
+```{r}
+conditions_a1<-c(0,0,0,0,0)
+IQAa_1$IQA<-as.numeric(IQAa_1$IQA)
+for (i in 1:nrow(IQAa_1)) {
+  if (IQAa_1$IQA[i]<30) {
+    conditions_a1[1]=conditions_a1[1]+1
+  }
+  if (IQAa_1$IQA[i]<66 & IQAa_1$IQA[i]>29) {
+    conditions_a1[2]=conditions_a1[2]+1
+  }
+  if (IQAa_1$IQA[i]<99 & IQAa_1$IQA[i]>65) {
+    conditions_a1[3]=conditions_a1[3]+1
+  }
+  if (IQAa_1$IQA[i]<150 & IQAa_1$IQA[i]>98) {
+    conditions_a1[4]=conditions_a1[4]+1
+  }
+  if (IQAa_1$IQA[i]>149) {
+    conditions_a1[5]=conditions_a1[5]+1
+  }
+  
+}  
+conditions_a1  
+
+conditions_a2<-c(0,0,0,0,0)
+IQAa_2$IQA<-as.numeric(IQAa_2$IQA)
+for (i in 1:nrow(IQAa_2)) {
+  if (IQAa_2$IQA[i]<30) {
+    conditions_a2[1]=conditions_a2[1]+1
+  }
+  if (IQAa_2$IQA[i]<66 & IQAa_2$IQA[i]>29) {
+    conditions_a2[2]=conditions_a2[2]+1
+  }
+  if (IQAa_2$IQA[i]<99 & IQAa_2$IQA[i]>65) {
+    conditions_a2[3]=conditions_a2[3]+1
+  }
+  if (IQAa_2$IQA[i]<150 & IQAa_2$IQA[i]>98) {
+    conditions_a2[4]=conditions_a2[4]+1
+  }
+  if (IQAa_2$IQA[i]>149) {
+    conditions_a2[5]=conditions_a2[5]+1
+  }
+  
+
+}
+
+conditions_a2
+
+conditions_a3<-c(0,0,0,0,0)
+IQAa_3$IQA<-as.numeric(IQAa_3$IQA)
+for (i in 1:nrow(IQAa_3)) {
+  if (IQAa_3$IQA[i]<30) {
+    conditions_a3[1]=conditions_a3[1]+1
+  }
+  if (IQAa_3$IQA[i]<66 & IQAa_3$IQA[i]>29) {
+    conditions_a3[2]=conditions_a3[2]+1
+  }
+  if (IQAa_3$IQA[i]<99 & IQAa_3$IQA[i]>65) {
+    conditions_a3[3]=conditions_a3[3]+1
+  }
+  if (IQAa_3$IQA[i]<150 & IQAa_3$IQA[i]>98) {
+    conditions_a3[4]=conditions_a3[4]+1
+  }
+  if (IQAa_3$IQA[i]>149) {
+    conditions_a3[5]=conditions_a3[5]+1
+  }
+  
+
+}
+
+conditions_a3
+
+conditions_a4<-c(0,0,0,0,0)
+IQAa_4$IQA<-as.numeric(IQAa_4$IQA)
+for (i in 1:nrow(IQAa_4)) {
+  if (IQAa_4$IQA[i]<30) {
+    conditions_a4[1]=conditions_a4[1]+1
+  }
+  if (IQAa_4$IQA[i]<66 & IQAa_4$IQA[i]>29) {
+    conditions_a4[2]=conditions_a4[2]+1
+  }
+  if (IQAa_4$IQA[i]<99 & IQAa_4$IQA[i]>65) {
+    conditions_a4[3]=conditions_a4[3]+1
+  }
+  if (IQAa_4$IQA[i]<150 & IQAa_4$IQA[i]>98) {
+    conditions_a4[4]=conditions_a4[4]+1
+  }
+  if (IQAa_4$IQA[i]>149) {
+    conditions_a4[5]=conditions_a4[5]+1
+  }
+  
+
+}
+
+conditions_a4
+
+conditions_a5<-c(0,0,0,0,0)
+IQAa_5$IQA<-as.numeric(IQAa_5$IQA)
+for (i in 1:nrow(IQAa_5)) {
+  if (IQAa_5$IQA[i]<30) {
+    conditions_a5[1]=conditions_a5[1]+1
+  }
+  if (IQAa_5$IQA[i]<66 & IQAa_5$IQA[i]>29) {
+    conditions_a5[2]=conditions_a5[2]+1
+  }
+  if (IQAa_5$IQA[i]<99 & IQAa_5$IQA[i]>65) {
+    conditions_a5[3]=conditions_a5[3]+1
+  }
+  if (IQAa_5$IQA[i]<150 & IQAa_5$IQA[i]>98) {
+    conditions_a5[4]=conditions_a5[4]+1
+  }
+  if (IQAa_5$IQA[i]>149) {
+    conditions_a5[5]=conditions_a5[5]+1
+  }
+  
+
+}
+
+conditions_a5
+
+conditions_a6<-c(0,0,0,0,0)
+IQAa_6$IQA<-as.numeric(IQAa_6$IQA)
+for (i in 1:nrow(IQAa_6)) {
+  if (IQAa_6$IQA[i]<30) {
+    conditions_a6[1]=conditions_a6[1]+1
+  }
+  if (IQAa_6$IQA[i]<66 & IQAa_6$IQA[i]>29) {
+    conditions_a6[2]=conditions_a6[2]+1
+  }
+  if (IQAa_6$IQA[i]<99 & IQAa_6$IQA[i]>65) {
+    conditions_a6[3]=conditions_a6[3]+1
+  }
+  if (IQAa_6$IQA[i]<150 & IQAa_6$IQA[i]>98) {
+    conditions_a6[4]=conditions_a6[4]+1
+  }
+  if (IQAa_6$IQA[i]>149) {
+    conditions_a6[5]=conditions_a6[5]+1
+  }
+  
+
+}
+
+conditions_a6
+
+conditions_a7<-c(0,0,0,0,0)
+IQAa_7$IQA<-as.numeric(IQAa_7$IQA)
+for (i in 1:nrow(IQAa_7)) {
+  if (IQAa_7$IQA[i]<30) {
+    conditions_a7[1]=conditions_a7[1]+1
+  }
+  if (IQAa_7$IQA[i]<66 & IQAa_7$IQA[i]>29) {
+    conditions_a7[2]=conditions_a7[2]+1
+  }
+  if (IQAa_7$IQA[i]<99 & IQAa_7$IQA[i]>65) {
+    conditions_a7[3]=conditions_a7[3]+1
+  }
+  if (IQAa_7$IQA[i]<150 & IQAa_7$IQA[i]>98) {
+    conditions_a7[4]=conditions_a7[4]+1
+  }
+  if (IQAa_7$IQA[i]>149) {
+    conditions_a7[5]=conditions_a7[5]+1
+  }
+  
+
+}
+
+conditions_a7
+
+conditions_a8<-c(0,0,0,0,0)
+IQAa_8$IQA<-as.numeric(IQAa_8$IQA)
+for (i in 1:nrow(IQAa_8)) {
+  if (IQAa_8$IQA[i]<30) {
+    conditions_a8[1]=conditions_a8[1]+1
+  }
+  if (IQAa_8$IQA[i]<66 & IQAa_8$IQA[i]>29) {
+    conditions_a8[2]=conditions_a8[2]+1
+  }
+  if (IQAa_8$IQA[i]<99 & IQAa_8$IQA[i]>65) {
+    conditions_a8[3]=conditions_a8[3]+1
+  }
+  if (IQAa_8$IQA[i]<150 & IQAa_8$IQA[i]>98) {
+    conditions_a8[4]=conditions_a8[4]+1
+  }
+  if (IQAa_8$IQA[i]>149) {
+    conditions_a8[5]=conditions_a8[5]+1
+  }
+  
+
+}
+
+conditions_a8
+
+conditions_a9<-c(0,0,0,0,0)
+IQAa_9$IQA<-as.numeric(IQAa_9$IQA)
+for (i in 1:nrow(IQAa_9)) {
+  if (IQAa_9$IQA[i]<30) {
+    conditions_a9[1]=conditions_a9[1]+1
+  }
+  if (IQAa_9$IQA[i]<66 & IQAa_9$IQA[i]>29) {
+    conditions_a9[2]=conditions_a9[2]+1
+  }
+  if (IQAa_9$IQA[i]<99 & IQAa_9$IQA[i]>65) {
+    conditions_a9[3]=conditions_a9[3]+1
+  }
+  if (IQAa_9$IQA[i]<150 & IQAa_9$IQA[i]>98) {
+    conditions_a9[4]=conditions_a9[4]+1
+  }
+  if (IQAa_9$IQA[i]>149) {
+    conditions_a9[5]=conditions_a9[5]+1
+  }
+  
+
+}
+
+conditions_a9
+
+conditions_a10<-c(0,0,0,0,0)
+IQAa_10$IQA<-as.numeric(IQAa_10$IQA)
+for (i in 1:nrow(IQAa_10)) {
+  if (IQAa_10$IQA[i]<30) {
+    conditions_a10[1]=conditions_a10[1]+1
+  }
+  if (IQAa_10$IQA[i]<66 & IQAa_10$IQA[i]>29) {
+    conditions_a10[2]=conditions_a10[2]+1
+  }
+  if (IQAa_10$IQA[i]<99 & IQAa_10$IQA[i]>65) {
+    conditions_a10[3]=conditions_a10[3]+1
+  }
+  if (IQAa_10$IQA[i]<150 & IQAa_10$IQA[i]>98) {
+    conditions_a10[4]=conditions_a10[4]+1
+  }
+  if (IQAa_10$IQA[i]>149) {
+    conditions_a10[5]=conditions_a10[5]+1
+  }
+  
+
+}
+
+conditions_a10
+
+conditions_a11<-c(0,0,0,0,0)
+IQAa_11$IQA<-as.numeric(IQAa_11$IQA)
+for (i in 1:nrow(IQAa_11)) {
+  if (IQAa_11$IQA[i]<30) {
+    conditions_a11[1]=conditions_a11[1]+1
+  }
+  if (IQAa_11$IQA[i]<66 & IQAa_11$IQA[i]>29) {
+    conditions_a11[2]=conditions_a11[2]+1
+  }
+  if (IQAa_11$IQA[i]<99 & IQAa_11$IQA[i]>65) {
+    conditions_a11[3]=conditions_a11[3]+1
+  }
+  if (IQAa_11$IQA[i]<150 & IQAa_11$IQA[i]>98) {
+    conditions_a11[4]=conditions_a11[4]+1
+  }
+  if (IQAa_11$IQA[i]>149) {
+    conditions_a11[5]=conditions_a11[5]+1
+  }
+  
+
+}
+
+conditions_a12<-c(0,0,0,0,0)
+IQAa_12$IQA<-as.numeric(IQAa_12$IQA)
+for (i in 1:nrow(IQAa_12)) {
+  if (IQAa_12$IQA[i]<30) {
+    conditions_a12[1]=conditions_a12[1]+1
+  }
+  if (IQAa_12$IQA[i]<66 & IQAa_12$IQA[i]>29) {
+    conditions_a12[2]=conditions_a12[2]+1
+  }
+  if (IQAa_12$IQA[i]<99 & IQAa_12$IQA[i]>65) {
+    conditions_a12[3]=conditions_a12[3]+1
+  }
+  if (IQAa_12$IQA[i]<150 & IQAa_12$IQA[i]>98) {
+    conditions_a12[4]=conditions_a12[4]+1
+  }
+  if (IQAa_12$IQA[i]>149) {
+    conditions_a12[5]=conditions_a12[5]+1
+  }
+  
+
+}
+
+
+conditions_a11
+
+conditions_m1<-c(0,0,0,0,0)
+IQAm_1$IQA<-as.numeric(IQAm_1$IQA)
+for (i in 1:nrow(IQAm_1)) {
+  if (IQAm_1$IQA[i]<30) {
+    conditions_m1[1]=conditions_m1[1]+1
+  }
+  if (IQAm_1$IQA[i]<66 & IQAm_1$IQA[i]>29) {
+    conditions_m1[2]=conditions_m1[2]+1
+  }
+  if (IQAm_1$IQA[i]<99 & IQAm_1$IQA[i]>65) {
+    conditions_m1[3]=conditions_m1[3]+1
+  }
+  if (IQAm_1$IQA[i]<150 & IQAm_1$IQA[i]>98) {
+    conditions_m1[4]=conditions_m1[4]+1
+  }
+  if (IQAm_1$IQA[i]>149) {
+    conditions_m1[5]=conditions_m1[5]+1
+  }
+  
+}
+conditions_m1
+
+conditions_m2<-c(0,0,0,0,0)
+IQAm_2$IQA<-as.numeric(IQAm_2$IQA)
+for (i in 1:nrow(IQAm_2)) {
+  if (IQAm_2$IQA[i]<30) {
+    conditions_m2[1]=conditions_m2[1]+1
+  }
+  if (IQAm_2$IQA[i]<66 & IQAm_2$IQA[i]>29) {
+    conditions_m2[2]=conditions_m2[2]+1
+  }
+  if (IQAm_2$IQA[i]<99 & IQAm_2$IQA[i]>65) {
+    conditions_m2[3]=conditions_m2[3]+1
+  }
+  if (IQAm_2$IQA[i]<150 & IQAm_2$IQA[i]>98) {
+    conditions_m2[4]=conditions_m2[4]+1
+  }
+  if (IQAm_2$IQA[i]>149) {
+    conditions_m2[5]=conditions_m2[5]+1
+  }
+  
+}
+conditions_m2
+
+conditions_m3<-c(0,0,0,0,0)
+IQAm_3$IQA<-as.numeric(IQAm_3$IQA)
+for (i in 1:nrow(IQAm_3)) {
+  if (IQAm_3$IQA[i]<30) {
+    conditions_m3[1]=conditions_m3[1]+1
+  }
+  if (IQAm_3$IQA[i]<66 & IQAm_3$IQA[i]>29) {
+    conditions_m3[2]=conditions_m3[2]+1
+  }
+  if (IQAm_3$IQA[i]<99 & IQAm_3$IQA[i]>65) {
+    conditions_m3[3]=conditions_m3[3]+1
+  }
+  if (IQAm_3$IQA[i]<150 & IQAm_3$IQA[i]>98) {
+    conditions_m3[4]=conditions_m3[4]+1
+  }
+  if (IQAm_3$IQA[i]>149) {
+    conditions_m3[5]=conditions_m3[5]+1
+  }
+  
+}
+conditions_m3
+
+conditions_m4<-c(0,0,0,0,0)
+IQAm_4$IQA<-as.numeric(IQAm_4$IQA)
+for (i in 1:nrow(IQAm_4)) {
+  if (IQAm_4$IQA[i]<30) {
+    conditions_m4[1]=conditions_m4[1]+1
+  }
+  if (IQAm_4$IQA[i]<66 & IQAm_4$IQA[i]>29) {
+    conditions_m4[2]=conditions_m4[2]+1
+  }
+  if (IQAm_4$IQA[i]<99 & IQAm_4$IQA[i]>65) {
+    conditions_m4[3]=conditions_m4[3]+1
+  }
+  if (IQAm_4$IQA[i]<150 & IQAm_4$IQA[i]>98) {
+    conditions_m4[4]=conditions_m4[4]+1
+  }
+  if (IQAm_4$IQA[i]>149) {
+    conditions_m4[5]=conditions_m4[5]+1
+  }
+  
+}
+conditions_m4
+
+conditions_m5<-c(0,0,0,0,0)
+IQAm_5$IQA<-as.numeric(IQAm_5$IQA)
+for (i in 1:nrow(IQAm_5)) {
+  if (IQAm_5$IQA[i]<30) {
+    conditions_m5[1]=conditions_m5[1]+1
+  }
+  if (IQAm_5$IQA[i]<66 & IQAm_5$IQA[i]>29) {
+    conditions_m5[2]=conditions_m5[2]+1
+  }
+  if (IQAm_5$IQA[i]<99 & IQAm_5$IQA[i]>65) {
+    conditions_m5[3]=conditions_m5[3]+1
+  }
+  if (IQAm_5$IQA[i]<150 & IQAm_5$IQA[i]>98) {
+    conditions_m5[4]=conditions_m5[4]+1
+  }
+  if (IQAm_5$IQA[i]>149) {
+    conditions_m5[5]=conditions_m5[5]+1
+  }
+  
+}
+conditions_m5
+
+conditions_m6<-c(0,0,0,0,0)
+IQAm_6$IQA<-as.numeric(IQAm_6$IQA)
+for (i in 1:nrow(IQAm_6)) {
+  if (IQAm_6$IQA[i]<30) {
+    conditions_m6[1]=conditions_m6[1]+1
+  }
+  if (IQAm_6$IQA[i]<66 & IQAm_6$IQA[i]>29) {
+    conditions_m6[2]=conditions_m6[2]+1
+  }
+  if (IQAm_6$IQA[i]<99 & IQAm_6$IQA[i]>65) {
+    conditions_m6[3]=conditions_m6[3]+1
+  }
+  if (IQAm_6$IQA[i]<150 & IQAm_6$IQA[i]>98) {
+    conditions_m6[4]=conditions_m6[4]+1
+  }
+  if (IQAm_6$IQA[i]>149) {
+    conditions_m6[5]=conditions_m6[5]+1
+  }
+  
+}
+conditions_m6
+
+conditions_m7<-c(0,0,0,0,0)
+IQAm_7$IQA<-as.numeric(IQAm_7$IQA)
+for (i in 1:nrow(IQAm_7)) {
+  if (IQAm_7$IQA[i]<30) {
+    conditions_m7[1]=conditions_m7[1]+1
+  }
+  if (IQAm_7$IQA[i]<66 & IQAm_7$IQA[i]>29) {
+    conditions_m7[2]=conditions_m7[2]+1
+  }
+  if (IQAm_7$IQA[i]<99 & IQAm_7$IQA[i]>65) {
+    conditions_m7[3]=conditions_m7[3]+1
+  }
+  if (IQAm_7$IQA[i]<150 & IQAm_7$IQA[i]>98) {
+    conditions_m7[4]=conditions_m7[4]+1
+  }
+  if (IQAm_7$IQA[i]>149) {
+    conditions_m7[5]=conditions_m7[5]+1
+  }
+  
+}
+conditions_m7
+
+conditions_m8<-c(0,0,0,0,0)
+IQAm_8$IQA<-as.numeric(IQAm_8$IQA)
+for (i in 1:nrow(IQAm_8)) {
+  if (IQAm_8$IQA[i]<30) {
+    conditions_m8[1]=conditions_m8[1]+1
+  }
+  if (IQAm_8$IQA[i]<66 & IQAm_8$IQA[i]>29) {
+    conditions_m8[2]=conditions_m8[2]+1
+  }
+  if (IQAm_8$IQA[i]<99 & IQAm_8$IQA[i]>65) {
+    conditions_m8[3]=conditions_m8[3]+1
+  }
+  if (IQAm_8$IQA[i]<150 & IQAm_8$IQA[i]>98) {
+    conditions_m8[4]=conditions_m8[4]+1
+  }
+  if (IQAm_8$IQA[i]>149) {
+    conditions_m8[5]=conditions_m8[5]+1
+  }
+  
+}
+conditions_m8
+
+conditions_m9<-c(0,0,0,0,0)
+IQAm_9$IQA<-as.numeric(IQAm_9$IQA)
+for (i in 1:nrow(IQAm_9)) {
+  if (IQAm_9$IQA[i]<30) {
+    conditions_m9[1]=conditions_m9[1]+1
+  }
+  if (IQAm_9$IQA[i]<66 & IQAm_9$IQA[i]>29) {
+    conditions_m9[2]=conditions_m9[2]+1
+  }
+  if (IQAm_9$IQA[i]<99 & IQAm_9$IQA[i]>65) {
+    conditions_m9[3]=conditions_m9[3]+1
+  }
+  if (IQAm_9$IQA[i]<150 & IQAm_9$IQA[i]>98) {
+    conditions_m9[4]=conditions_m9[4]+1
+  }
+  if (IQAm_9$IQA[i]>149) {
+    conditions_m9[5]=conditions_m9[5]+1
+  }
+  
+}
+conditions_m9
+
+conditions_m10<-c(0,0,0,0,0)
+IQAm_10$IQA<-as.numeric(IQAm_10$IQA)
+for (i in 1:nrow(IQAm_10)) {
+  if (IQAm_10$IQA[i]<30) {
+    conditions_m10[1]=conditions_m10[1]+1
+  }
+  if (IQAm_10$IQA[i]<66 & IQAm_10$IQA[i]>29) {
+    conditions_m10[2]=conditions_m10[2]+1
+  }
+  if (IQAm_10$IQA[i]<99 & IQAm_10$IQA[i]>65) {
+    conditions_m10[3]=conditions_m10[3]+1
+  }
+  if (IQAm_10$IQA[i]<150 & IQAm_10$IQA[i]>98) {
+    conditions_m10[4]=conditions_m10[4]+1
+  }
+  if (IQAm_10$IQA[i]>149) {
+    conditions_m10[5]=conditions_m10[5]+1
+  }
+  
+}
+conditions_m10
+
+conditions_m11<-c(0,0,0,0,0)
+IQAm_11$IQA<-as.numeric(IQAm_11$IQA)
+for (i in 1:nrow(IQAm_11)) {
+  if (IQAm_11$IQA[i]<30) {
+    conditions_m11[1]=conditions_m11[1]+1
+  }
+  if (IQAm_11$IQA[i]<66 & IQAm_11$IQA[i]>29) {
+    conditions_m11[2]=conditions_m11[2]+1
+  }
+  if (IQAm_11$IQA[i]<99 & IQAm_11$IQA[i]>65) {
+    conditions_m11[3]=conditions_m11[3]+1
+  }
+  if (IQAm_11$IQA[i]<150 & IQAm_11$IQA[i]>98) {
+    conditions_m11[4]=conditions_m11[4]+1
+  }
+  if (IQAm_11$IQA[i]>149) {
+    conditions_m11[5]=conditions_m11[5]+1
+  }
+  
+}
+conditions_m11
+
+conditions_m12<-c(0,0,0,0,0)
+IQAm_12$IQA<-as.numeric(IQAm_12$IQA)
+for (i in 1:nrow(IQAm_12)) {
+  if (IQAm_12$IQA[i]<30) {
+    conditions_m12[1]=conditions_m12[1]+1
+  }
+  if (IQAm_12$IQA[i]<66 & IQAm_12$IQA[i]>29) {
+    conditions_m12[2]=conditions_m12[2]+1
+  }
+  if (IQAm_12$IQA[i]<99 & IQAm_12$IQA[i]>65) {
+    conditions_m12[3]=conditions_m12[3]+1
+  }
+  if (IQAm_12$IQA[i]<150 & IQAm_12$IQA[i]>98) {
+    conditions_m12[4]=conditions_m12[4]+1
+  }
+  if (IQAm_12$IQA[i]>149) {
+    conditions_m12[5]=conditions_m12[5]+1
+  }
+  
+
+}
+
+```
+
+```{r}
+percent_a1<-conditions_a1/sum(conditions_a1)
+percent_a2<-conditions_a2/sum(conditions_a2)
+percent_a3<-conditions_a3/sum(conditions_a3)
+percent_a4<-conditions_a4/sum(conditions_a4)
+percent_a5<-conditions_a5/sum(conditions_a5)
+percent_a6<-conditions_a6/sum(conditions_a6)
+percent_a7<-conditions_a7/sum(conditions_a7)
+percent_a8<-conditions_a8/sum(conditions_a8)
+percent_a9<-conditions_a9/sum(conditions_a9)
+percent_a10<-conditions_a10/sum(conditions_a10)
+percent_a11<-conditions_a11/sum(conditions_a11)
+percent_a12<-conditions_a12/sum(conditions_a12)
+
+percent_m1<-conditions_m1/sum(conditions_m1)
+percent_m2<-conditions_m2/sum(conditions_m2)
+percent_m3<-conditions_m3/sum(conditions_m3)
+percent_m4<-conditions_m4/sum(conditions_m4)
+percent_m5<-conditions_m5/sum(conditions_m5)
+percent_m6<-conditions_m6/sum(conditions_m6)
+percent_m7<-conditions_m7/sum(conditions_m7)
+percent_m8<-conditions_m8/sum(conditions_m8)
+percent_m9<-conditions_m9/sum(conditions_m9)
+percent_m10<-conditions_m10/sum(conditions_m10)
+percent_m11<-conditions_m11/sum(conditions_m11)
+percent_m12<-conditions_m12/sum(conditions_m12)
+```
+
+We plot the normalized bars to show the percentages of days for each type of air quality divided by year
+
+```{r}
+data_for_barplot_pred<- matrix(c(percent_a1, percent_a2, percent_a3,percent_a4, percent_a5, percent_a6, percent_a7, percent_a8, percent_a9, percent_a10, percent_a11, percent_a12), nrow=5)
+colnames(data_for_barplot_pred) <- c("2012","2013","2014","2015", "2016 ", "2017", "2018", "2019", "2020", "2021", "2022", "2023")
+rownames(data_for_barplot_pred) <- c("optimal", "good", "fair", "bad", "terrible")
+ 
+# Grouped barplot
+barplot(data_for_barplot_pred, 
+        col=colors()[c(23,62, 89, 33, 78)] , 
+        border="white", 
+        beside=FALSE, 
+        legend=rownames(data_for_barplot_pred), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="year", ylab= "quality of air through the year", main="Quality of air in Arcella by IQA through the years 2012-2023", 
+        font.lab=2)
+```
+```{r}
+data_for_barplot_pred<- matrix(c(percent_m1, percent_m2, percent_m3,percent_m4, percent_m5, percent_m6, percent_m7, percent_m8, percent_m9, percent_m10, percent_m11, percent_m12), nrow=5)
+colnames(data_for_barplot_pred) <- c("2012","2013","2014","2015", "2016 ", "2017", "2018", "2019", "2020", "2021", "2022", "2023")
+rownames(data_for_barplot_pred) <- c("optimal", "good", "fair", "bad", "terrible")
+ 
+# Grouped barplot
+barplot(data_for_barplot_pred, 
+        col=colors()[c(23,62, 89, 33, 78)] , 
+        border="white", 
+        beside=FALSE, 
+        legend=rownames(data_for_barplot_pred), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="year", ylab= "quality of air through the year", main="Quality of air by IQA in Mandria through the years 2012-2023", 
+        font.lab=2)
+```
+
+GRAPHICS OF POLLUTANTS 
+In this part we plot all pollutants concentration throughout the examined period
+
+```{r}
+ggplot()  + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ 
+  geom_line(aaq, mapping= aes(x = date, y = CO, colour='#696969')) + geom_hline(aes(yintercept=10, colour="red"), linetype="dashed") +labs(x= 'Date', y="CO concentration", title="Concentration of CO pollutant in Arcella") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend')
+```
+
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ 
+  geom_line(aaq, mapping= aes(x = date, y = NO2, colour='#696969')) + geom_hline(aes(yintercept=200,  color="red"),linetype="dashed")+labs(x="Date", y="NO2 concentration", title="Concentration of NO2 pollutant in Arcella") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+
+```
+
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ 
+  geom_line(aaq, mapping= aes(x = date, y = SO2, colour='#696969')) + geom_hline(aes(yintercept=125,  color="red"),linetype="dashed")+labs(x="Date", y="SO2 concentration", title="Concentration of SO2 pollutant in Arcella") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+```
+
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ 
+  geom_line(aaq, mapping= aes(x = date, y = PM10, colour='#696969')) + geom_hline(aes(yintercept=50,  color="red"),linetype="dashed")+labs(x="Date", y="PM10 concentration", title="Concentration of PM10 pollutant in Arcella") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+```
+
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ 
+  geom_line(maq, mapping= aes(x = date, y = CO, colour='#696969')) + geom_hline(aes(yintercept=10,  color="red"),linetype="dashed")+labs(x="Date", y="CO concentration", title="Concentration of CO pollutant in Mandria") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+
+
+```
+
+```{r}
+
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+
+  geom_line(maq, mapping= aes(x = date, y = NO2, colour='#696969')) + geom_hline(aes(yintercept=200,  color="red"),linetype="dashed")+labs(x="Date", y="NO2 concentration", title="Concentration of NO2 pollutant in Mandria") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+
+```
+
+```{r}
+
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+
+  geom_line(maq, mapping= aes(x = date, y = O3, colour='#696969')) + geom_hline(aes(yintercept=180,  color="red"),linetype="dashed")+labs(x="Date", y="O3 concentration", title="Concentration of O3 pollutant in Mandria") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+```
+
+```{r}
+
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+
+  geom_line(maq, mapping= aes(x = date, y = PM10, colour='#696969')) + geom_hline(aes(yintercept=50,  color="red"),linetype="dashed")+labs(x="Date", y="PM10 concentration", title="Concentration of PM10 pollutant in Mandria") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+
+```
+
+```{r}
+
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+
+  geom_line(maq, mapping= aes(x = date, y = PM2.5, colour='#696969')) + geom_hline(aes(yintercept=15,  color="red"),linetype="dashed")+labs(x="Date", y="PM2.5 concentration", title="Concentration of PM2.5 pollutant in Mandria") + scale_color_identity(name = '', breaks = c('red'), labels = c("Law limit"), guide = 'legend') 
+
+```
+
+We plot the two stations together to see if there are relevant differences between the detection in Mandria and in Arcella
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ geom_line(aaq, mapping= aes(x=date, y=CO, color="black"))+geom_line(maq, mapping= aes(x=date, y=CO,  color="grey"))+labs(x="Date", y="CO concentration", title="Comparison of CO pollutant between the two stations") + scale_color_identity(name = 'CO concentration', breaks = c('black', 'grey'), labels = c("Arcella", 'Mandria'), guide = 'legend') 
+```
+
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ geom_line(aaq, mapping= aes(x=date, y=NO2, color="black"))+geom_line(maq, mapping= aes(x=date, y=NO2,  color="grey"))+labs(x="Date", y="NO2 concentration", title="Comparison of NO2 pollutant between the two stations") + scale_color_identity(name = 'NO2 concentration', breaks = c('black', 'grey'), labels = c("Arcella", 'Mandria'), guide = 'legend') 
+```
+
+```{r}
+ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ geom_line(aaq, mapping= aes(x=date, y=PM10, color="black"))+geom_line(maq, mapping= aes(x=date, y=PM10,  color="grey"))+labs(x="Date", y="PM10 concentration", title="Comparison of the PM10 pollutant between the two stations") + scale_color_identity(name = 'PM10 concentration', breaks = c('black', 'grey'), labels = c("Arcella", 'Mandria'), guide = 'legend') 
+```
+
+## BREAKING THE LAW
+We now need to see for each pollutant how many times there was a law infraction,
+considering that there are strict rules about the permitted number of infractions.
+
+```{r}
+#firstly let's create all eleven datasets, one for year, excluding 2023 which is incomplete
+aaq_1<-aaq[1:366,]
+aaq_2<-aaq[367:731,]
+aaq_3<-aaq[732:1096,]
+aaq_4<-aaq[1097:1461,]
+aaq_5<-aaq[1462:1827,]
+aaq_6<-aaq[1828:2192,]
+aaq_7<-aaq[2193:2557,]
+aaq_8<-aaq[2558:2922,]
+aaq_9<-aaq[2923:3288,]
+aaq_10<-aaq[3289:3653,]
+aaq_11<-aaq[3654:4018,]
+
+
+maq_1<-maq[1:366,]
+maq_2<-maq[367:731,]
+maq_3<-maq[732:1096,]
+maq_4<-maq[1097:1461,]
+maq_5<-maq[1462:1827,]
+maq_6<-maq[1828:2192,]
+maq_7<-maq[2193:2557,]
+maq_8<-maq[2558:2922,]
+maq_9<-maq[2923:3288,]
+maq_10<-maq[3289:3653,]
+maq_11<-maq[3654:4018,]
+```
+
+We are now going to check the number of infraction for Arcella
+
+```{r}
+
+lim_arc_CO<-c(sum(aaq_1$CO>10), sum(aaq_2$CO>10), sum(aaq_3$CO>10), sum(aaq_4$CO>10), sum(aaq_5$CO>10), sum(aaq_6$CO>10), sum(aaq_7$CO>10), sum(aaq_8$CO>10), sum(aaq_9$CO>10), sum(aaq_10$CO>10), sum(aaq_11$CO>10))
+
+lim_arc_NO2<-c(sum(aaq_1$NO2>200), sum(aaq_2$NO2>200), sum(aaq_3$NO2>200), sum(aaq_4$NO2>200), sum(aaq_5$NO2>200), sum(aaq_6$NO2>200), sum(aaq_7$NO2>200), sum(aaq_8$NO2>200), sum(aaq_9$NO2>200), sum(aaq_10$NO2>200), sum(aaq_11$NO2>200))
+
+lim_arc_SO2<-c(sum(aaq_1$SO2>125), sum(aaq_2$SO2>125), sum(aaq_3$SO2>125), sum(aaq_4$SO2>125), sum(aaq_5$SO2>125), sum(aaq_6$SO2>125), sum(aaq_7$SO2>125), sum(aaq_8$SO2>125), sum(aaq_9$SO2>125), sum(aaq_10$SO2>125), sum(aaq_11$SO2>125))
+
+lim_arc_PM10<-c(sum(aaq_1$PM10>50), sum(aaq_2$PM10>50), sum(aaq_3$PM10>50), sum(aaq_4$PM10>50), sum(aaq_5$PM10>50), sum(aaq_6$PM10>50), sum(aaq_7$PM10>50), sum(aaq_8$PM10>50), sum(aaq_9$PM10>50), sum(aaq_10$PM10>50), sum(aaq_11$PM10>50))
+```
+
+and for Mandria
+
+```{r}
+
+lim_man_CO<-c(sum(maq_1$CO>10), sum(maq_2$CO>10), sum(maq_3$CO>10), sum(maq_4$CO>10), sum(maq_5$CO>10), sum(maq_6$CO>10), sum(maq_7$CO>10), sum(maq_8$CO>10), sum(maq_9$CO>10), sum(maq_10$CO>10), sum(maq_11$CO>10))
+
+lim_man_NO2<-c(sum(maq_1$NO2>200), sum(maq_2$NO2>200), sum(maq_3$NO2>200), sum(maq_4$NO2>200), sum(maq_5$NO2>200), sum(maq_6$NO2>200), sum(maq_7$NO2>200), sum(maq_8$NO2>200), sum(maq_9$NO2>200), sum(maq_10$NO2>200), sum(maq_11$NO2>200))
+
+lim_man_O3<-c(sum(maq_1$O3>180), sum(maq_2$O3>180), sum(maq_3$O3>180), sum(maq_4$O3>180), sum(maq_5$O3>180), sum(maq_6$O3>180), sum(maq_7$O3>180), sum(maq_8$O3>180), sum(maq_9$O3>180), sum(maq_10$O3>180), sum(maq_11$O3>180))
+
+lim_man_PM10<-c(sum(maq_1$PM10>50), sum(maq_2$PM10>50), sum(maq_3$PM10>50), sum(maq_4$PM10>50), sum(maq_5$PM10>50), sum(maq_6$PM10>50), sum(maq_7$PM10>50), sum(maq_8$PM10>50), sum(maq_9$PM10>50), sum(maq_10$PM10>50), sum(maq_11$PM10>50))
+
+lim_man_PM2.5<-c(sum(maq_1$PM2.5>15), sum(maq_2$PM10>15), sum(maq_3$PM10>15), sum(maq_4$PM10>15), sum(maq_5$PM10>15), sum(maq_6$PM10>15), sum(maq_7$PM10>15), sum(maq_8$PM10>15), sum(maq_9$PM10>15), sum(maq_10$PM10>15), sum(maq_11$PM10>15))
+```
+
+We now plot the number of infractions for each pollutant by year, so we can see if we have a trend
+
+```{r}
+years<-c( 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
+infraction_arc<-ggplot()+ theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ theme(
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',colour = "white"))+ scale_x_continuous(n.breaks=10)+
+  geom_line(aes(x = years, y = lim_arc_CO, color="#003f5c"), size=2) +geom_line(aes(x = years, y= lim_arc_NO2, color="#58508d"), size=2)+geom_line(aes(x = years, y = lim_arc_PM10, color="#ff6361"), size=2)+geom_line(aes(x = years, y= lim_arc_SO2, color="#ffa600"), size=2)+
+geom_hline(aes(yintercept=3, color="#ffa600"), linetype="dashed")+geom_hline(aes(yintercept=18, color="#58508d"), linetype="dashed") + geom_hline(aes(yintercept=35, color="#ff6361"), linetype="dashed") +
+labs(x="year", y="n° infractions",title = "Infractions per year in Arcella", color = "Legend") + scale_color_identity(name = 'number of infractions for', breaks = c('#003f5c',  '#bc5090','#58508d', '#ffa600', '#ff6361'), labels = c("CO",'NO', "NO2", "SO2", "PM10"), guide = 'legend')
+infraction_arc
+```
+
+```{r}
+years<-c(2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
+infraction_man<- ggplot() + theme_light()+ theme(plot.title = element_text(hjust = 0.5))+ theme(
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',colour = "white"))+ scale_x_continuous(n.breaks=10)+
+  
+  geom_line(aes(x = years, y = lim_man_CO, color="#003f5c"), size=2)+geom_line(aes(x = years, y= lim_man_NO2, color="#58508d"), size=2)+geom_line(aes(x = years, y = lim_man_PM10, color="#ff6361"), size=2)+geom_line(aes(x = years, y= lim_man_PM2.5, color="purple"), size=2)+geom_line(aes(x = years, y= lim_man_O3, color="#be5504"), size=2)+
+  
+geom_hline(aes(yintercept=25, color="purple"), linetype="dashed")+ geom_hline(aes(yintercept=18, color="#58508d"), linetype="dashed")+ geom_hline(aes(yintercept=35, color="#ff6361"), linetype="dashed")+
+  
+labs(x="year", y="n° infractions",title = "Infractions per year in Mandria", color = "Legend") + scale_color_identity(name = 'number of infractions for', breaks = c('#003f5c',  '#bc5090','#58508d', '#be5504', '#ff6361', 'purple'), labels = c("CO",'NO', "NO2", "O3", "PM10", 'PM2.5'), guide = 'legend')
+infraction_man
+```
+
+From these two graphics we can see that Padua has a mild problem concerning the presence of nitrogen bioxide (NO2) and for the ozone concentration, while the concentration of PM10, PM2.5 are very dangerous since they exceed the ARPAV limit with high frequency. Instead, sulphur bioxide (SO2) and carbon monoxide (CO) have levels under the legal limits.
+Another interesting thing that can be observed is that there is a slightly decreasing trend in the concentrations of various pollutants, especially concerning the NO2 concentration.
+
+## OUTLIERS
+
+```{r}
+#boxplot of column CO of aaq
+boxplot(aaq$CO, main="Boxplot of CO concentration in Arcella", ylab="CO concentration")
+
+max(boxplot.stats(aaq$CO)$out)
+#find the row where C0 is 5.5
+aaq[aaq$CO==5.5,]
+```
+
+we have a very high outlier on the 16th of April 2021. We change that value with another value of the same date:
+the second highest of that day is 2.1 so we substitute the 5.5 with 2.1
+```{r}
+aaq[aaq$CO==5.5,]$CO<-2.1
+```
+
+```{r}
+par(mfrow = c(2, 2))
+boxplot(aaq$CO, main="Boxplot of CO concentration in Arcella", ylab="CO concentration")
+#boxplot(aaq$NO, main="Boxplot of NO concentration in Arcella", ylab="NO concentration")
+boxplot(aaq$NO2, main="Boxplot of NO2 concentration in Arcella", ylab="NO2 concentration")
+boxplot(aaq$SO2, main="Boxplot of SO2 concentration in Arcella", ylab="SO2 concentration")
+boxplot(aaq$PM10, main="Boxplot of PM10 concentration in Arcella", ylab="PM10 concentration")
+par(mfrow = c(1, 1))
+```
+
+```{r}
+par(mfrow = c(3, 2))
+boxplot(maq$CO, main="Boxplot of CO concentration in Mandria", ylab="CO concentration")
+#boxplot(maq$NO, main="Boxplot of NO concentration in Mandria", ylab="NO concentration")
+boxplot(maq$NO2, main="Boxplot of NO2 concentration in Mandria", ylab="NO2 concentration")
+boxplot(maq$O3, main="Boxplot of O3 concentration in Mandria", ylab="O3 concentration")
+boxplot(maq$PM10, main="Boxplot of PM10 concentration in Mandria", ylab="PM10 concentration")
+boxplot(maq$PM2.5, main="Boxplot of PM2.5 concentration in Mandria", ylab="PM2.5 concentration")
+par(mfrow = c(1, 1))
+
+```
+
+We plot the autocorrelation for each pollutant in Arcella
+```{r}
+par(mfrow = c(2, 2))
+acf(aaq$CO)
+#acf(aaq$NO)
+acf(aaq$NO2)
+acf(aaq$SO2)
+acf(aaq$PM10)
+par(mfrow = c(1, 1))
+```
+
+```{r}
+#install.packages("forecast")
+library("forecast")
+```
+we plot the partial autocorrelation of the CO pollutant in Arcella
+```{r}
+pacf(aaq$CO)
+```
+
+##SMOOTHING OF THE DATA
+
+We will create some other time series with data that are smoothed in order to avoid such high noise as in the original data
+
+```{r}
+aaq$index <- 1:nrow(aaq)
+x <- aaq$index
+y <- aaq$CO
+modello.loess <- loess(y ~ x, data = aaq, span = 0.02)
+pred_CO <- predict(modello.loess)
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(aaq, mapping = aes(x = date, y = CO), color="grey") + geom_line(aaq, mapping = aes(x = date, y = pred_CO), color = "red", linewidth=0.8) + labs(x="Date", y="CO concentration",title = "CO concentration for Arcella smoothed", color = "Legend")
+```
+
+
+```{r}
+aaq$index <- 1:nrow(aaq)
+x <- aaq$index
+y <- aaq$NO2
+modello.loess <- loess(y ~ x, data = aaq, span = 0.02)
+pred_NO2 <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(aaq, mapping = aes(x = date, y = NO2), color="grey") + geom_line(aaq, mapping = aes(x = date, y = pred_NO2), color = "red", linewidth=0.8) + labs(x="Date", y="NO2 concentration",title = "NO2 concentration for Arcella smoothed", color = "Legend")
+```
+
+```{r}
+aaq$index <- 1:nrow(aaq)
+x <- aaq$index
+y <- aaq$SO2
+modello.loess <- loess(y ~ x, data = aaq, span = 0.02)
+pred_SO2 <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(aaq, mapping = aes(x = date, y = SO2), color="grey") + geom_line(aaq, mapping = aes(x = date, y = pred_SO2), color = "red", linewidth=0.8) + labs(x="Date", y="SO2 concentration",title = "SO2 concentration for Arcella smoothed", color = "Legend")
+
+```
+
+```{r}
+aaq$index <- 1:nrow(aaq)
+x <- aaq$index
+y <- aaq$PM10
+modello.loess <- loess(y ~ x, data = aaq, span = 0.02)
+pred_PM10 <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(aaq, mapping = aes(x = date, y = PM10), color="grey") + geom_line(aaq, mapping = aes(x = date, y = pred_PM10), color = "red", linewidth=0.8) + labs(x="Date", y="PM10 concentration",title = "PM10 concentration for Arcella smoothed", color = "Legend")
+```
+
+#Mandria
+
+```{r}
+maq$index <- 1:nrow(maq)
+x <- maq$index
+y <- maq$CO
+modello.loess <- loess(y ~ x, data = maq, span = 0.02)
+pred_CO_m <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(maq, mapping = aes(x = date, y = CO), color="grey") + geom_line(maq, mapping = aes(x = date, y = pred_CO_m), color = "red", linewidth=0.8) + labs(x="Date", y="CO concentration",title = "CO concentration for Mandria smoothed", color = "Legend")
+
+```
+
+
+```{r}
+maq$index <- 1:nrow(maq)
+x <- maq$index
+y <- maq$NO2
+modello.loess <- loess(y ~ x, data = maq, span = 0.02)
+pred_NO2_m <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(maq, mapping = aes(x = date, y = NO2), color="grey") + geom_line(maq, mapping = aes(x = date, y = pred_NO2_m), color = "red", linewidth=0.8) + labs(x="Date", y="NO2 concentration",title = "NO2 concentration for Mandria smoothed", color = "Legend")
+
+```
+
+```{r}
+maq$index <- 1:nrow(maq)
+x <- maq$index
+y <- maq$O3
+modello.loess <- loess(y ~ x, data = maq, span = 0.02)
+pred_O3_m <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(maq, mapping = aes(x = date, y = O3), color="grey") + geom_line(maq, mapping = aes(x = date, y = pred_O3_m), color = "red", linewidth=0.8) + labs(x="Date", y="O3 concentration",title = "O3 concentration for Mandria smoothed", color = "Legend")
+```
+
+```{r}
+maq$index <- 1:nrow(maq)
+x <- maq$index
+y <- maq$PM10
+modello.loess <- loess(y ~ x, data = maq, span = 0.02)
+pred_PM10_m <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(maq, mapping = aes(x = date, y = PM10), color="grey") + geom_line(maq, mapping = aes(x = date, y = pred_PM10_m), color = "red", linewidth=0.8) + labs(x="Date", y="PM10 concentration",title = "PM10 concentration for Mandria smoothed", color = "Legend")
+```
+
+```{r}
+maq$index <- 1:nrow(maq)
+x <- maq$index
+y <- maq$PM2.5
+modello.loess <- loess(y ~ x, data = maq, span = 0.02)
+pred_PM2.5_m <- predict(modello.loess)
+
+ggplot() +theme_light()+ theme(plot.title = element_text(hjust = 0.5)) +geom_line(maq, mapping = aes(x = date, y = PM2.5), color="grey") + geom_line(maq, mapping = aes(x = date, y = pred_PM2.5_m), color = "red", linewidth=0.8) + labs(x="Date", y="PM2.5 concentration",title = "PM2.5 concentration for Mandria smoothed", color = "Legend")
+```
+
+
+Now we create the datasets with each column as a time series because we are going to need this type of data in order to compute our models.
+
+```{r}
+columns = c("date","CO", "NO2", "SO2", "PM10") 
+aaq_ts = data.frame(matrix(nrow = 4198, ncol = length(columns))) 
+colnames(aaq_ts) = columns
+
+columns1 = c("date","CO", "NO2", "O3", "PM10", "PM2.5") 
+maq_ts = data.frame(matrix(nrow = 4198, ncol = length(columns1))) 
+colnames(maq_ts) = columns1
+```
+
+We set the frequency to 365 because we can see from the plots that there is an annual seasonality.
+
+```{r}
+aaq_ts$date<-ts(aaq$date, frequency=365)
+maq_ts$date<-ts(maq$date, frequency=365)
+
+aaq_ts$CO<-ts(aaq$CO, frequency=365)
+aaq_ts$NO2<-ts(aaq$NO2, frequency=365)
+aaq_ts$SO2<-ts(aaq$SO2, frequency=365)
+aaq_ts$PM10<-ts(aaq$PM10, frequency=365)
+
+maq_ts$CO<-ts(maq$CO, frequency=365)
+maq_ts$NO2<-ts(maq$NO2, frequency=365)
+maq_ts$O3<-ts(maq$O3, frequency=365)
+maq_ts$PM10<-ts(maq$PM10, frequency=365)
+maq_ts$PM2.5<-ts(maq$PM2.5, frequency=365)
+```
+
+
+```{r}
+columns = c("date","CO", "NO2", "SO2", "PM10") 
+aaq_ts_smo = data.frame(matrix(nrow = 4198, ncol = length(columns))) 
+colnames(aaq_ts_smo) = columns
+
+columns1 = c("date","CO", "NO2", "O3", "PM10", "PM2.5") 
+maq_ts_smo = data.frame(matrix(nrow = 4198, ncol = length(columns1))) 
+colnames(maq_ts_smo) = columns1
+```
+
+We perform the same actions for the smoothed data.
+
+```{r}
+aaq_ts_smo$date<-ts(aaq$date, frequency=365)
+maq_ts_smo$date<-ts(maq$date, frequency=365)
+
+aaq_ts_smo$CO<-ts(pred_CO, frequency=365)
+aaq_ts_smo$NO2<-ts(pred_NO2, frequency=365)
+aaq_ts_smo$SO2<-ts(pred_SO2, frequency=365)
+aaq_ts_smo$PM10<-ts(pred_PM10, frequency=365)
+
+maq_ts_smo$CO<-ts(pred_CO_m, frequency=365)
+maq_ts_smo$NO2<-ts(pred_NO2_m, frequency=365)
+maq_ts_smo$O3<-ts(pred_O3_m, frequency=365)
+maq_ts_smo$PM10<-ts(pred_PM10_m, frequency=365)
+maq_ts_smo$PM2.5<-ts(pred_PM2.5_m, frequency=365)
+
+```
+
+
+
+#ARIMA models
+
+We first perform the Arima model on the time series of smoothed data with frequency 7. We try an auto.arima with seasonality and the parameters approximation and stepwise set to FALSE in order to have a more in depth search of the parameters, that we will then pass to the Arima function for a forecast of the data.
+We ran the auto.arima function only one time for each variable, since it takes a bit of time to run, and then we use the results obtained in the Arima function. Nevertheless, we leave the code commented for future reference. 
+
+```{r}
+ts_CO <- ts(pred_CO[1:4018], frequency = 7)
+ts_1_CO<-ts(pred_CO, frequency=7)
+#auto.arima(ts_CO, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_CO<- Arima(ts_CO, order=c(3,0,1),seasonal=c(0,0,1))
+summary(arima_CO)
+
+resid_CO<- residuals(arima_CO)
+tsdisplay(resid_CO)
+
+
+plot(ts_1_CO)
+lines(fitted(arima_CO), col=2)
+
+for_CO<- forecast(arima_CO, h=60)
+
+autoplot(ts_1_CO) +
+autolayer(for_CO, series="Arima for CO smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="CO",title = "Arima for CO smoothed Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_NO2 <- ts(pred_NO2[1:4018], frequency = 7)
+ts_1_NO2<-ts(pred_NO2, frequency=7)
+#auto.arima(ts_NO2, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_NO2<- Arima(ts_NO2, order=c(3,1,1),seasonal=c(0,0,1))
+summary(arima_NO2)
+
+resid_NO2<- residuals(arima_NO2)
+tsdisplay(resid_NO2)
+
+
+plot(ts_1_NO2)
+lines(fitted(arima_NO2), col=2)
+
+for_NO2<- forecast(arima_NO2, h=60)
+
+autoplot(ts_1_NO2) +
+autolayer(for_NO2, series="Arima for NO2 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="NO2",title = "Arima for NO2 smoothed Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+```{r}
+ts_SO2 <- ts(pred_SO2[1:4018], frequency = 7)
+ts_1_SO2<-ts(pred_SO2, frequency=7)
+#auto.arima(ts_SO2, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_SO2<- Arima(ts_SO2, order=c(3,1,1),seasonal=c(1,0,0))
+summary(arima_SO2)
+
+resid_SO2<- residuals(arima_SO2)
+tsdisplay(resid_SO2)
+
+
+plot(ts_1_SO2)
+lines(fitted(arima_SO2), col=2)
+
+for_SO2<- forecast(arima_SO2, h=60)
+
+autoplot(ts_1_SO2) +
+autolayer(for_SO2, series="Arima for SO2 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="SO2",title = "Arima for SO2 smoothed Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+```{r}
+ts_PM10 <- ts(pred_PM10[1:4018], frequency = 7)
+ts_1_PM10<-ts(pred_PM10, frequency=7)
+#auto.arima(ts_PM10, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_PM10<- Arima(ts_PM10, order=c(3,0,1),seasonal=c(0,0,1))
+summary(arima_PM10)
+
+resid_PM10<- residuals(arima_PM10)
+tsdisplay(resid_PM10)
+
+
+plot(ts_1_PM10)
+lines(fitted(arima_PM10), col=2)
+
+for_PM10<- forecast(arima_PM10, h=60)
+
+autoplot(ts_1_PM10) +
+autolayer(for_PM10, series="Arima for PM10 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="PM10",title = "Arima for PM10 smoothed Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+Same for Mandria
+
+```{r}
+ts_CO_m <- ts(pred_CO_m[1:4018], frequency = 7)
+ts_1_CO_m<-ts(pred_CO_m, frequency=7)
+#auto.arima(ts_CO_m, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_CO_m<- Arima(ts_CO_m, order=c(3,1,1),seasonal=c(0,0,1))
+summary(arima_CO_m)
+
+resid_CO_m<- residuals(arima_CO_m)
+tsdisplay(resid_CO_m)
+
+
+plot(ts_1_CO_m)
+lines(fitted(arima_CO_m), col=2)
+
+for_CO_m<- forecast(arima_CO_m, h=60)
+
+autoplot(ts_1_CO_m) +
+autolayer(for_CO_m, series="Arima for CO smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="CO",title = "Arima for CO smoothed Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+```{r}
+ts_NO2_m <- ts(pred_NO2_m[1:4018], frequency = 7)
+ts_1_NO2_m<-ts(pred_NO2_m, frequency=7)
+#auto.arima(ts_NO2_m, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_NO2_m<- Arima(ts_NO2_m, order=c(3,1,1),seasonal=c(1,0,0))
+summary(arima_NO2_m)
+
+resid_NO2_m<- residuals(arima_NO2_m)
+tsdisplay(resid_NO2_m)
+
+
+plot(ts_1_NO2_m)
+lines(fitted(arima_NO2_m), col=2)
+
+for_NO2_m<- forecast(arima_NO2_m, h=60)
+
+autoplot(ts_1_NO2_m) +
+autolayer(for_NO2_m, series="Arima for NO2 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="NO2",title = "Arima for NO2 smoothed Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+
+```{r}
+ts_O3_m <- ts(pred_O3_m[1:4018], frequency = 7)
+ts_1_O3_m<-ts(pred_O3_m, frequency=7)
+#auto.arima(ts_O3_m, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_O3_m<- Arima(ts_O3_m, order=c(3,0,1),seasonal=c(0,0,1))
+summary(arima_O3_m)
+
+resid_O3_m<- residuals(arima_O3_m)
+tsdisplay(resid_O3_m)
+
+
+plot(ts_1_O3_m)
+lines(fitted(arima_O3_m), col=2)
+
+for_O3_m<- forecast(arima_O3_m, h=60)
+
+autoplot(ts_1_O3_m) +
+autolayer(for_O3_m, series="Arima for O3 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="O3",title = "Arima for O3 smoothed Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_PM10_m <- ts(pred_PM10_m[1:4018], frequency = 7)
+ts_1_PM10_m<-ts(pred_PM10_m, frequency=7)
+#auto.arima(ts_PM10_m, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_PM10_m<- Arima(ts_PM10_m, order=c(3,1,1),seasonal=c(0,0,1))
+summary(arima_PM10_m)
+
+resid_PM10_m<- residuals(arima_PM10_m)
+tsdisplay(resid_PM10_m)
+
+
+plot(ts_1_PM10_m)
+lines(fitted(arima_PM10_m), col=2)
+
+for_PM10_m<- forecast(arima_PM10_m, h=60)
+
+autoplot(ts_1_PM10_m) +
+autolayer(for_PM10_m, series="Arima for PM10 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="PM10",title = "Arima for PM10 smoothed Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_PM2.5_m <- ts(pred_PM2.5_m[1:4018], frequency = 7)
+ts_1_PM2.5_m<-ts(pred_PM2.5_m, frequency=7)
+#auto.arima(ts_PM2.5_m, seasonal = TRUE, approximation = FALSE, stepwise= FALSE)
+```
+
+```{r}
+arima_PM2.5_m<- Arima(ts_PM2.5_m, order=c(3,1,1),seasonal=c(0,0,1))
+summary(arima_PM2.5_m)
+
+resid_PM2.5_m<- residuals(arima_PM2.5_m)
+tsdisplay(resid_PM2.5_m)
+
+
+plot(ts_1_PM2.5_m)
+lines(fitted(arima_PM2.5_m), col=2)
+
+for_PM2.5_m<- forecast(arima_PM2.5_m, h=60)
+
+autoplot(ts_1_PM2.5_m) +
+autolayer(for_PM2.5_m, series="Arima for PM10 smoothed", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="PM2.5",title = "Arima for PM2.5 smoothed Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+#Forecast table for Arima
+
+```{r}
+columns = c("date","CO", "NO2", "SO2", "PM10", "IQA", "pollutant") 
+aaq_ts_forecast_arima = data.frame(matrix(nrow = 60, ncol = length(columns))) 
+colnames(aaq_ts_forecast_arima) = columns
+
+columns1 = c("date","CO", "NO2", "O3", "PM10", "PM2.5", "IQA", "pollutant") 
+maq_ts_forecast_arima = data.frame(matrix(nrow = 60, ncol = length(columns1))) 
+colnames(maq_ts_forecast_arima) = columns1
+```
+
+
+```{r}
+
+aaq_ts_forecast_arima$date<-aaq$date[4019:4078]
+maq_ts_forecast_arima$date<-maq$date[4019:4078]
+
+aaq_ts_forecast_arima$CO<-for_CO$mean
+aaq_ts_forecast_arima$NO2<-for_NO2$mean
+aaq_ts_forecast_arima$SO2<-for_SO2$mean
+aaq_ts_forecast_arima$PM10<-for_PM10$mean
+
+maq_ts_forecast_arima$CO<-for_CO_m$mean
+maq_ts_forecast_arima$NO2<-for_NO2_m$mean
+maq_ts_forecast_arima$O3<-for_O3_m$mean
+maq_ts_forecast_arima$PM10<-for_PM10_m$mean
+maq_ts_forecast_arima$PM2.5<-for_PM2.5_m$mean
+```
+
+```{r echo = T, eval = T}
+#let's set the concentration limits with a vector, based on ARPAV 2022 report
+limits<-c(10,200,125,50)
+
+
+for (i in 1:nrow(aaq_ts_forecast_arima)) {
+    test<-c(aaq_ts_forecast_arima[i,]$CO*100/limits[1], aaq_ts_forecast_arima[i,]$NO2*100/limits[2],  aaq_ts_forecast_arima[i,]$SO2*100/limits[3], aaq_ts_forecast_arima[i,]$PM10*100/limits[4] )
+    test
+    aaq_ts_forecast_arima$IQA[i]<-max(test)
+    aaq_ts_forecast_arima$pollutant[i]<-colnames(aaq_ts_forecast_arima[which.max(test)+1])
+    
+}
+View(aaq_ts_forecast_arima)
+```
+
+```{r echo = T, eval = T}
+#let's set the concentration limits with a vector, based on ARPAV 2022 report
+limits_m<-c(10, 200, 180, 50, 15)
+ 
+for (i in 1:nrow(maq_ts_forecast_arima)) {
+    test <- c(maq_ts_forecast_arima[i,]$CO*100/limits_m[1],  maq_ts_forecast_arima[i,]$NO2*100/limits_m[2],  maq_ts_forecast_arima[i,]$O3*100/limits_m[3], maq_ts_forecast_arima[i,]$PM10*100/limits_m[4], maq_ts_forecast_arima[i,]$PM2.5*100/limits_m[5] )
+    test
+    maq_ts_forecast_arima$IQA[i]<-max(test)
+    maq_ts_forecast_arima$pollutant[i]<-colnames(maq_ts_forecast_arima[which.max(test)+1])
+}
+
+View(maq_ts_forecast_arima)
+```
+
+We define the function Counter() that counts how many times we fall in the 80 and 95 confidence intervals
+
+```{r}
+
+Counter<-function(col, model, n, m) {
+  conf<- c(0,0)
+  for (i in n:m) {
+     if (col[i]<model$upper[i-4018] & col[i]>model$lower[i-4018]) {
+        conf[1]<-conf[1]+1
+     }
+     if (col[i]<model$upper[i-4018+60] & col[i]>model$lower[i-4018+60]) {
+        conf[2]<-conf[2]+1
+     }
+  }
+  return(conf)
+}
+```
+
+
+```{r}
+count_CO_arima <- Counter(aaq$CO, for_CO, 4019,4078)
+count_NO2_arima <- Counter(aaq$NO2, for_NO2, 4019,4078)
+count_SO2_arima <- Counter(aaq$SO2, for_SO2, 4019,4078)
+count_PM10_arima <- Counter(aaq$PM10, for_PM10, 4019,4078)
+
+
+count_CO_m_arima <- Counter(maq$CO, for_CO_m, 4019,4078)
+count_NO2_m_arima <- Counter(maq$NO2, for_NO2_m, 4019,4078)
+count_O3_m_arima <- Counter(maq$O3, for_O3_m, 4019,4078)
+count_PM10_m_arima <- Counter(maq$PM10, for_PM10_m, 4019,4078)
+count_PM2.5_m_arima <- Counter(maq$PM2.5, for_PM2.5_m, 4019,4078)
+```
+
+```{r}
+data_for_barplot<- matrix(c(count_CO_arima[1], count_CO_arima[2] , count_NO2_arima[1], count_NO2_arima[2], count_SO2_arima[1], count_SO2_arima[2], count_PM10_arima[1], count_PM10_arima[2]), nrow=2)
+colnames(data_for_barplot) <- c("CO","NO2","SO2","PM10")
+rownames(data_for_barplot) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant", ylab= "n° correct predictions", main="Predictions in confidence intervals for Arcella with Arima", 
+        font.lab=2)
+```
+
+```{r}
+data_for_barplot_m<- matrix(c(count_CO_m_arima[1], count_CO_m_arima[2] , count_NO2_m_arima[1], count_NO2_m_arima[2], count_O3_m_arima[1], count_O3_m_arima[2], count_PM10_m_arima[1], count_PM10_m_arima[2], count_PM2.5_m_arima[1], count_PM2.5_m_arima[2]), nrow=2)
+colnames(data_for_barplot_m) <- c("CO","NO2","O3","PM10", "PM2.5")
+rownames(data_for_barplot_m) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot_m, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot_m), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant", ylab= "n° correct predictions", main="Predictions in confidence intervals for Mandria with Arima", 
+        font.lab=2)
+```
+```{r}
+count_right_pollutant <- 0
+for (i in 1:60){
+     if (IQAa$pollutant[4018+i] == aaq_ts_forecast_arima$pollutant[i]) {
+        count_right_pollutant<-count_right_pollutant+1
+     }}
+count_right_pollutant
+```
+
+```{r}
+count_right_pollutant_m <- 0
+for (i in 1:60){
+     if (IQAm$pollutant[4018+i] == maq_ts_forecast_arima$pollutant[i]) {
+        count_right_pollutant_m<-count_right_pollutant_m+1
+     }}
+count_right_pollutant_m
+```
+
+
+We perform the same actions for the smoothed pollutants
+
+```{r}
+count_CO_pred_arima <- Counter(pred_CO, for_CO, 4019,4078)
+count_NO2_pred_arima <- Counter(pred_NO2, for_NO2, 4019,4078)
+count_SO2_pred_arima <- Counter(pred_SO2, for_SO2, 4019,4078)
+count_PM10_pred_arima <- Counter(pred_PM10, for_PM10, 4019,4078)
+
+
+count_CO_pred_m_arima <- Counter(pred_CO_m, for_CO_m, 4019,4078)
+count_NO2_pred_m_arima <- Counter(pred_NO2_m, for_NO2_m, 4019,4078)
+count_O3_pred_m_arima <- Counter(pred_O3_m, for_O3_m, 4019,4078)
+count_PM10_pred_m_arima <- Counter(pred_PM10_m, for_PM10_m, 4019,4078)
+count_PM2.5_pred_m_arima <- Counter(pred_PM2.5_m, for_PM2.5_m, 4019,4078)
+```
+
+```{r}
+data_for_barplot_pred<- matrix(c(count_CO_pred_arima[1], count_CO_pred_arima[2] , count_NO2_pred_arima[1], count_NO2_pred_arima[2], count_SO2_pred_arima[1], count_SO2_pred_arima[2], count_PM10_pred_arima[1], count_PM10_pred_arima[2]), nrow=2)
+colnames(data_for_barplot_pred) <- c("CO","NO2","SO2","PM10")
+rownames(data_for_barplot_pred) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot_pred, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot_pred), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant smoothed", ylab= "n° correct predictions", main="Predictions in confidence intervals for Arcella smoothed with Arima", 
+        font.lab=2)
+```
+
+```{r}
+data_for_barplot_m_pred<- matrix(c(count_CO_pred_m_arima[1], count_CO_pred_m_arima[2] , count_NO2_pred_m_arima[1], count_NO2_pred_m_arima[2], count_O3_pred_m_arima[1], count_O3_pred_m_arima[2], count_PM10_pred_m_arima[1], count_PM10_pred_m_arima[2], count_PM2.5_pred_m_arima[1], count_PM2.5_pred_m_arima[2]), nrow=2)
+colnames(data_for_barplot_m_pred) <- c("CO","NO2","O3","PM10", "PM2.5")
+rownames(data_for_barplot_m_pred) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot_m_pred, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot_m_pred), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant smoothed", ylab= "n° correct predictions", main="Predictions in confidence intervals for Mandria smoothed", 
+        font.lab=2)
+```
+ 
+
+#HOLT-WINTERS
+
+In this section we define the Holt-Winters models for each pollutant, used for prediction.
+
+#Arcella HW
+
+```{r}
+ts_1<-ts(pred_CO, frequency=7)
+ts <- ts(pred_CO[1:4018], frequency = 7)
+fc_CO <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1)+
+autolayer(fc_CO, series="HW multi damped", PI=FALSE, size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="CO",title = "Holt Winters for CO Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+#checkresiduals(fc_CO)
+```
+
+
+```{r}
+ts_1<-ts(pred_NO2, frequency=7)
+ts <- ts(pred_NO2[1:4018], frequency = 7)
+fc_NO2 <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_NO2, series="HW multi damped", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="NO2",title = "Holt Winters for NO2 Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_1<-ts(pred_SO2, frequency=7)
+ts <- ts(pred_SO2[1:4018], frequency = 7)
+fc_SO2 <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_SO2, series="HW multi damped", PI=FALSE,  size=1) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="SO2",title = "Holt Winters for SO2 Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_1<-ts(pred_PM10, frequency=7)
+ts <- ts(pred_PM10[1:4018], frequency = 7)
+fc_PM10 <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_PM10, series="HW multi damped", PI=FALSE,  size=1) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="PM10",title = "Holt Winters for PM10 Arcella")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+#Mandria HW
+
+```{r}
+ts_1<-ts(pred_CO_m, frequency=7)
+ts <- ts(pred_CO_m[1:4018], frequency = 7)
+fc_CO_m <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1)+
+autolayer(fc_CO_m, series="HW multi damped", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="CO",title = "Holt Winters for CO Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+
+```{r}
+ts_1<-ts(pred_NO2_m, frequency=7)
+ts <- ts(pred_NO2_m[1:4018], frequency = 7)
+fc_NO2_m <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_NO2_m, series="HW multi damped", PI=FALSE,  size=1) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="NO2",title = "Holt Winters for NO2 Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_1<-ts(pred_O3_m, frequency=7)
+ts <- ts(pred_O3_m[1:4018], frequency = 7)
+fc_O3_m <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_O3_m, series="HW multi damped", PI=FALSE,  size=1) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="O3",title = "Holt Winters for O3 Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_1<-ts(pred_PM10_m, frequency=7)
+ts <- ts(pred_PM10_m[1:4018], frequency = 7)
+fc_PM10_m <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_PM10_m, series="HW multi damped", PI=FALSE,  size=1) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="PM10",title = "Holt Winters for PM10 Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+ts_1<-ts(pred_PM2.5_m, frequency=7)
+ts <- ts(pred_PM2.5_m[1:4018], frequency = 7)
+fc_PM2.5_m <- hw(ts, damped = TRUE, seasonal="additive", h=60)
+autoplot(ts_1) +
+autolayer(fc_PM2.5_m, series="HW multi damped", PI=FALSE,  size=1)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+labs(x="time", y="PM2.5",title = "Holt Winters for PM2.5 Mandria")+ guides(colour = guide_legend(title="Daily forecasts"))+ scale_x_discrete(limits=c(52.28,156.57,261,365.28,469.71,574),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+#Forecast table
+
+```{r}
+columns = c("date","CO", "NO2", "SO2", "PM10", "IQA", "pollutant") 
+aaq_ts_forecast = data.frame(matrix(nrow = 60, ncol = length(columns))) 
+colnames(aaq_ts_forecast) = columns
+
+columns1 = c("date","CO", "NO2", "O3", "PM10", "PM2.5", "IQA", "pollutant") 
+maq_ts_forecast = data.frame(matrix(nrow = 60, ncol = length(columns1))) 
+colnames(maq_ts_forecast) = columns1
+```
+
+
+```{r}
+
+aaq_ts_forecast$date<-aaq$date[4019:4078]
+maq_ts_forecast$date<-maq$date[4019:4078]
+
+aaq_ts_forecast$CO<-fc_CO$mean
+aaq_ts_forecast$NO2<-fc_NO2$mean
+aaq_ts_forecast$SO2<-fc_SO2$mean
+aaq_ts_forecast$PM10<-fc_PM10$mean
+
+maq_ts_forecast$CO<-fc_CO_m$mean
+maq_ts_forecast$NO2<-fc_NO2_m$mean
+maq_ts_forecast$O3<-fc_O3_m$mean
+maq_ts_forecast$PM10<-fc_PM10_m$mean
+maq_ts_forecast$PM2.5<-fc_PM2.5_m$mean
+```
+
+```{r echo = T, eval = T}
+#let's set the concentration limits with a vector, based on ARPAV 2022 report
+limits<-c(10,200,125,50)
+
+
+for (i in 1:nrow(aaq_ts_forecast)) {
+    test<-c(aaq_ts_forecast[i,]$CO*100/limits[1], aaq_ts_forecast[i,]$NO2*100/limits[2],  aaq_ts_forecast[i,]$SO2*100/limits[3], aaq_ts_forecast[i,]$PM10*100/limits[4] )
+    test
+    aaq_ts_forecast$IQA[i]<-max(test)
+    aaq_ts_forecast$pollutant[i]<-colnames(aaq_ts_forecast[which.max(test)+1])
+    
+}
+View(aaq_ts_forecast)
+```
+
+```{r echo = T, eval = T}
+#let's set the concentration limits with a vector, based on ARPAV 2022 report
+limits_m<-c(10, 200, 180, 50, 15)
+ 
+for (i in 1:nrow(maq_ts_forecast)) {
+    test <- c(maq_ts_forecast[i,]$CO*100/limits_m[1],  maq_ts_forecast[i,]$NO2*100/limits_m[2],  maq_ts_forecast[i,]$O3*100/limits_m[3], maq_ts_forecast[i,]$PM10*100/limits_m[4], maq_ts_forecast[i,]$PM2.5*100/limits_m[5] )
+    test
+    maq_ts_forecast$IQA[i]<-max(test)
+    maq_ts_forecast$pollutant[i]<-colnames(maq_ts_forecast[which.max(test)+1])
+}
+
+View(maq_ts_forecast)
+```
+
+We now count how many times we fall in the 80 and 95 confidence int
+```{r}
+count_CO <- Counter(aaq$CO, fc_CO, 4019,4078)
+count_NO2 <- Counter(aaq$NO2, fc_NO2, 4019,4078)
+count_SO2 <- Counter(aaq$SO2, fc_SO2, 4019,4078)
+count_PM10 <- Counter(aaq$PM10, fc_PM10, 4019,4078)
+
+
+count_CO_m <- Counter(maq$CO, fc_CO_m, 4019,4078)
+count_NO2_m <- Counter(maq$NO2, fc_NO2_m, 4019,4078)
+count_O3_m <- Counter(maq$O3, fc_O3_m, 4019,4078)
+count_PM10_m <- Counter(maq$PM10, fc_PM10_m, 4019,4078)
+count_PM2.5_m <- Counter(maq$PM2.5, fc_PM2.5_m, 4019,4078)
+```
+
+```{r}
+data_for_barplot<- matrix(c(count_CO[1], count_CO[2] , count_NO2[1], count_NO2[2], count_SO2[1], count_SO2[2], count_PM10[1], count_PM10[2]), nrow=2)
+colnames(data_for_barplot) <- c("CO","NO2","SO2","PM10")
+rownames(data_for_barplot) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant", ylab= "n° correct predictions", main="Predictions in confidence intervals for Arcella", 
+        font.lab=2)
+```
+```{r}
+data_for_barplot_m<- matrix(c(count_CO_m[1], count_CO_m[2] , count_NO2_m[1], count_NO2_m[2], count_O3_m[1], count_O3_m[2], count_PM10_m[1], count_PM10_m[2], count_PM2.5_m[1], count_PM2.5_m[2]), nrow=2)
+colnames(data_for_barplot_m) <- c("CO","NO2","O3","PM10", "PM2.5")
+rownames(data_for_barplot_m) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot_m, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot_m), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant", ylab= "n° correct predictions", main="Predictions in confidence intervals for Mandria", 
+        font.lab=2)
+```
+```{r}
+count_right_pollutant <- 0
+for (i in 1:60){
+     if (IQAa$pollutant[4018+i] == aaq_ts_forecast$pollutant[i]) {
+        count_right_pollutant<-count_right_pollutant+1
+     }}
+count_right_pollutant
+```
+```{r}
+count_right_pollutant_m <- 0
+for (i in 1:60){
+     if (IQAm$pollutant[4018+i] == maq_ts_forecast$pollutant[i]) {
+        count_right_pollutant_m<-count_right_pollutant_m+1
+     }}
+count_right_pollutant_m
+```
+
+
+We perform the same actions for the smoothed pollutants
+
+```{r}
+count_CO_pred <- Counter(pred_CO, fc_CO, 4019,4078)
+count_NO2_pred <- Counter(pred_NO2, fc_NO2, 4019,4078)
+count_SO2_pred <- Counter(pred_SO2, fc_SO2, 4019,4078)
+count_PM10_pred <- Counter(pred_PM10, fc_PM10, 4019,4078)
+
+
+count_CO_pred_m <- Counter(pred_CO_m, fc_CO_m, 4019,4078)
+count_NO2_pred_m <- Counter(pred_NO2_m, fc_NO2_m, 4019,4078)
+count_O3_pred_m <- Counter(pred_O3_m, fc_O3_m, 4019,4078)
+count_PM10_pred_m <- Counter(pred_PM10_m, fc_PM10_m, 4019,4078)
+count_PM2.5_pred_m <- Counter(pred_PM2.5_m, fc_PM2.5_m, 4019,4078)
+```
+
+```{r}
+data_for_barplot_pred<- matrix(c(count_CO_pred[1], count_CO_pred[2] , count_NO2_pred[1], count_NO2_pred[2], count_SO2_pred[1], count_SO2_pred[2], count_PM10_pred[1], count_PM10_pred[2]), nrow=2)
+colnames(data_for_barplot_pred) <- c("CO","NO2","SO2","PM10")
+rownames(data_for_barplot_pred) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot_pred, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot_pred), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant smoothed", ylab= "n° correct predictions", main="Predictions in confidence intervals for Arcella smoothed", 
+        font.lab=2)
+```
+```{r}
+data_for_barplot_m_pred<- matrix(c(count_CO_pred_m[1], count_CO_pred_m[2] , count_NO2_pred_m[1], count_NO2_pred_m[2], count_O3_pred_m[1], count_O3_pred_m[2], count_PM10_pred_m[1], count_PM10_pred_m[2], count_PM2.5_pred_m[1], count_PM2.5_pred_m[2]), nrow=2)
+colnames(data_for_barplot_m_pred) <- c("CO","NO2","O3","PM10", "PM2.5")
+rownames(data_for_barplot_m_pred) <- c("80 c.i.","95 c.i.")
+ 
+# Grouped barplot
+barplot(data_for_barplot_m_pred, 
+        col=colors()[c(23,89)] , 
+        border="white", 
+        beside=T, 
+        legend=rownames(data_for_barplot_m_pred), 
+        args.legend = list(x = "topright",
+                           inset = c(- 0.05, 0)),
+        xlab="pollutant smoothed", ylab= "n° correct predictions", main="Predictions in confidence intervals for Mandria smoothed", 
+        font.lab=2)
+```
+
+## RESULTS COMPARISON
+
+We now calculate, for each pollutant, the mean squared error between the real data and the points forecasted by the Holt-Winters' model, in order to get a comparison between the predictive models.
+```{r}
+mse_HW_CO <- mean((aaq$CO[4019:4078] -fc_CO$mean)^2)
+mse_HW_CO
+
+mse_arima_CO <- mean((aaq$CO[4019:4078] -for_CO$mean)^2)
+mse_arima_CO
+```
+
+```{r}
+mse_HW_NO2 <- mean((aaq$NO2[4019:4078] -fc_NO2$mean)^2)
+mse_HW_NO2
+
+mse_arima_NO2 <- mean((aaq$NO2[4019:4078] -for_NO2$mean)^2)
+mse_arima_NO2
+```
+
+```{r}
+mse_HW_SO2 <- mean((aaq$SO2[4019:4078] -fc_SO2$mean)^2)
+mse_HW_SO2
+
+mse_arima_SO2 <- mean((aaq$SO2[4019:4078] -for_SO2$mean)^2)
+mse_arima_SO2
+```
+
+```{r}
+mse_HW_PM10 <- mean((aaq$PM10[4019:4078] -fc_PM10$mean)^2)
+mse_HW_PM10
+
+mse_arima_PM10 <- mean((aaq$PM10[4019:4078] -for_PM10$mean)^2)
+mse_arima_PM10
+```
+
+```{r}
+mse_HW_CO_m <- mean((maq$CO[4019:4078] -fc_CO_m$mean)^2)
+mse_HW_CO_m
+
+mse_arima_CO_m <- mean((maq$CO[4019:4078] -for_CO_m$mean)^2)
+mse_arima_CO_m
+```
+
+```{r}
+mse_HW_NO2_m <- mean((maq$NO2[4019:4078] -fc_NO2_m$mean)^2)
+mse_HW_NO2_m
+
+mse_arima_NO2_m <- mean((maq$NO2[4019:4078] -for_NO2_m$mean)^2)
+mse_arima_NO2_m
+```
+
+```{r}
+mse_HW_O3_m <- mean((maq$O3[4019:4078] -fc_O3_m$mean)^2)
+mse_HW_O3_m
+
+mse_arima_O3_m <- mean((maq$O3[4019:4078] -for_O3_m$mean)^2)
+mse_arima_O3_m
+```
+
+```{r}
+mse_HW_PM10_m <- mean((maq$PM10[4019:4078] -fc_PM10_m$mean)^2)
+mse_HW_PM10_m
+
+mse_arima_PM10_m <- mean((maq$PM10[4019:4078] -for_PM10_m$mean)^2)
+mse_arima_PM10_m
+```
+
+```{r}
+mse_HW_PM2.5_m <- mean((maq$PM2.5[4019:4078] -fc_PM2.5_m$mean)^2)
+mse_HW_PM2.5_m
+
+mse_arima_PM2.5_m <- mean((maq$PM2.5[4019:4078] -for_PM2.5_m$mean)^2)
+mse_arima_PM2.5_m
+```
+
+#TSLM modelization
+
+To check the trend, we use the TSLM model which is good to identify the general behaviour of the time series
+
+
+```{r}
+tslm_CO<-tslm(CO~trend+season, data=aaq_ts_smo)
+summary(tslm_CO)
+autoplot(aaq_ts_smo$CO)+
+autolayer(fitted(tslm_CO), size=0.8) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="CO smoothed",title = "TSLM for CO Arcella smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+
+```{r}
+tslm_NO2<-tslm(NO2~trend+season, data=aaq_ts_smo)
+summary(tslm_NO2)
+autoplot(aaq_ts_smo$NO2)+
+autolayer(fitted(tslm_NO2),size=0.8)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="NO2 smoothed",title = "TSLM for NO2 Arcella smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+tslm_SO2<-tslm(SO2~trend+season, data=aaq_ts_smo)
+summary(tslm_SO2)
+autoplot(aaq_ts_smo$SO2)+
+autolayer(fitted(tslm_SO2),size=0.8)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="SO2 smoothed",title = "TSLM for SO2 Arcella smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+tslm_PM10<-tslm(PM10~trend+season, data=aaq_ts_smo)
+summary(tslm_PM10)
+autoplot(aaq_ts_smo$PM10)+
+autolayer(fitted(tslm_PM10),size=0.8)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="PM10 smoothed",title = "TSLM for PM10 Arcella smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+
+```
+
+```{r}
+tslm_CO_m<-tslm(CO~trend+season, data=maq_ts_smo)
+summary(tslm_CO_m)
+autoplot(maq_ts_smo$CO)+
+autolayer(fitted(tslm_CO_m),size=0.8)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="CO smoothed",title = "TSLM for CO Mandria smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}  
+tslm_NO2_m<-tslm(NO2~trend+season, data=maq_ts_smo)
+summary(tslm_NO2_m)
+autoplot(maq_ts_smo$NO2)+
+autolayer(fitted(tslm_NO2_m),size=0.8) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="NO2 smoothed",title = "TSLM for NO2 Mandria smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+tslm_O3_m<-tslm(O3~trend+season, data=maq_ts_smo)
+summary(tslm_O3_m)
+autoplot(maq_ts_smo$O3)+
+autolayer(fitted(tslm_O3_m),size=0.8) + theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="O3 smoothed",title = "TSLM for O3 Mandria smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+tslm_PM10_m<-tslm(PM10~trend+season, data=maq_ts_smo)
+summary(tslm_PM10_m)
+autoplot(maq_ts_smo$PM10)+
+autolayer(fitted(tslm_PM10_m),size=0.8)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="PM10 smoothed",title = "TSLM for PM10 Mandria smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
+
+```{r}
+tslm_PM2.5_m<-tslm(PM2.5~trend+season, data=maq_ts_smo)
+summary(tslm_PM2.5_m)
+autoplot(maq_ts_smo$PM2.5)+
+autolayer(fitted(tslm_PM2.5_m),size=0.8)+ theme(plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank(),legend.position = "none")+labs(x="time", y="PM2.5 smoothed",title = "TSLM for PM2.5 Mandria smoothed")+ scale_x_discrete(limits=c(2,4,6,8,10,12),labels=c("2013","2015","2017","2019", "2021", "2023"))
+```
